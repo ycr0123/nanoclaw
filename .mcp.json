@@ -1,3 +1,26 @@
 {
-  "mcpServers": {}
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/.mcp.schema.json",
+  "mcpServers": {
+    "context7": {
+      "$comment": "Up-to-date documentation and code examples via Context7",
+      "command": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/c", "npx -y @upstash/context7-mcp@latest"],
+      "env": {
+        "PATH": "C:\\Program Files\\nodejs;%PATH%"
+      }
+    },
+    "sequential-thinking": {
+      "$comment": "Step-by-step reasoning for complex problems",
+      "command": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/c", "npx -y @modelcontextprotocol/server-sequential-thinking"],
+      "env": {
+        "PATH": "C:\\Program Files\\nodejs;%PATH%"
+      }
+    }
+  },
+  "staggeredStartup": {
+    "enabled": true,
+    "delayMs": 500,
+    "connectionTimeout": 15000
+  }
 }
