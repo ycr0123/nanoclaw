@@ -77,10 +77,10 @@ export async function listEmails(
 
   try {
     // UIDL로 고유 ID 획득
-    let uidlList: Array<[string, string]>;
+    let uidlList: string[][];
     try {
       const raw = await pop3.UIDL();
-      uidlList = Array.isArray(raw) ? raw : [];
+      uidlList = Array.isArray(raw) ? (raw as string[][]) : [];
     } catch {
       // UIDL 미지원 시 빈 배열로 폴백
       uidlList = [];
@@ -88,9 +88,7 @@ export async function listEmails(
 
     // LIST로 메시지 번호/크기 획득
     const listResult = await pop3.LIST();
-    const msgList: Array<[string, string]> = Array.isArray(listResult)
-      ? listResult
-      : [];
+    const msgList = Array.isArray(listResult) ? (listResult as string[][]) : [];
 
     if (msgList.length === 0) return [];
 
@@ -164,7 +162,7 @@ export async function readEmail(
       if (typeof uidlResult === 'string') {
         uid = uidlResult;
       } else if (Array.isArray(uidlResult) && uidlResult.length >= 2) {
-        uid = uidlResult[1];
+        uid = String(uidlResult[1]);
       }
     } catch {
       // UIDL 미지원 시 기본값 사용

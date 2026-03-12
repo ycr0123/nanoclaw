@@ -40,9 +40,8 @@ function saveSeenUids(uids: Set<string>): void {
   try {
     // 최근 500개만 유지
     const arr = Array.from(uids);
-    const trimmed = arr.length > MAX_SEEN_UIDS
-      ? arr.slice(arr.length - MAX_SEEN_UIDS)
-      : arr;
+    const trimmed =
+      arr.length > MAX_SEEN_UIDS ? arr.slice(arr.length - MAX_SEEN_UIDS) : arr;
     fs.mkdirSync(path.dirname(SEEN_UIDS_FILE), { recursive: true });
     fs.writeFileSync(SEEN_UIDS_FILE, JSON.stringify(trimmed, null, 2));
   } catch (err) {
@@ -70,16 +69,14 @@ async function pollForNewEmails(deps: EmailPollerDeps): Promise<void> {
     });
 
     // UIDL로 고유 ID 획득
-    let uidlList: Array<[string, string]>;
+    let uidlList: string[][];
     try {
       const raw = await pop3.UIDL();
-      uidlList = Array.isArray(raw) ? raw : [];
+      uidlList = Array.isArray(raw) ? (raw as string[][]) : [];
     } catch {
       // UIDL 미지원 시 LIST 기반 해시로 대체
       const listResult = await pop3.LIST();
-      const msgList: Array<[string, string]> = Array.isArray(listResult)
-        ? listResult
-        : [];
+      const msgList = Array.isArray(listResult) ? (listResult as string[][]) : [];
       uidlList = msgList.map(([num, size]) => [num, `${num}-${size}`]);
     }
 
