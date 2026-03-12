@@ -47,9 +47,16 @@ interface SessionsIndex {
   entries: SessionEntry[];
 }
 
+type ContentBlock =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image';
+      source: { type: 'base64'; media_type: string; data: string };
+    };
+
 interface SDKUserMessage {
   type: 'user';
-  message: { role: 'user'; content: string };
+  message: { role: 'user'; content: string | ContentBlock[] };
   parent_tool_use_id: null;
   session_id: string;
 }
@@ -67,10 +74,10 @@ class MessageStream {
   private waiting: (() => void) | null = null;
   private done = false;
 
-  push(text: string): void {
+  push(content: string | ContentBlock[]): void {
     this.queue.push({
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       session_id: '',
     });
@@ -92,6 +99,71 @@ class MessageStream {
       this.waiting = null;
     }
   }
+}
+
+const IMAGE_REF_PATTERN = /\[Image: ([^\]]+)\]/g;
+const GROUP_IMAGES_DIR = '/workspace/group/images';
+
+/**
+ * 프롬프트 텍스트에서 [Image: filename] 참조를 찾아
+ * Claude 비전 content block으로 변환한다.
+ * 이미지가 없으면 원본 텍스트를 그대로 반환한다.
+ */
+function buildContentWithImages(text: string): string | ContentBlock[] {
+  if (!IMAGE_REF_PATTERN.test(text)) return text;
+
+  // 패턴 lastIndex 초기화
+  IMAGE_REF_PATTERN.lastIndex = 0;
+
+  const blocks: ContentBlock[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = IMAGE_REF_PATTERN.exec(text)) !== null) {
+    // 이미지 참조 앞의 텍스트 추가
+    if (match.index > lastIndex) {
+      const preceding = text.slice(lastIndex, match.index);
+      if (preceding.trim()) {
+        blocks.push({ type: 'text', text: preceding });
+      }
+    }
+
+    const filename = match[1];
+    const imagePath = path.join(GROUP_IMAGES_DIR, filename);
+
+    try {
+      if (fs.existsSync(imagePath)) {
+        const data = fs.readFileSync(imagePath);
+        blocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/jpeg',
+            data: data.toString('base64'),
+          },
+        });
+        log(`Loaded image: ${filename} (${data.length} bytes)`);
+      } else {
+        blocks.push({ type: 'text', text: `[Image not found: ${filename}]` });
+        log(`Image file not found: ${imagePath}`);
+      }
+    } catch (err) {
+      blocks.push({ type: 'text', text: `[Image load error: ${filename}]` });
+      log(`Failed to load image ${filename}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // 남은 텍스트 추가
+  if (lastIndex < text.length) {
+    const remaining = text.slice(lastIndex);
+    if (remaining.trim()) {
+      blocks.push({ type: 'text', text: remaining });
+    }
+  }
+
+  return blocks.length > 0 ? blocks : text;
 }
 
 async function readStdin(): Promise<string> {
@@ -338,7 +410,7 @@ async function runQuery(
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
   const stream = new MessageStream();
-  stream.push(prompt);
+  stream.push(buildContentWithImages(prompt));
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
@@ -355,7 +427,7 @@ async function runQuery(
     const messages = drainIpcInput();
     for (const text of messages) {
       log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
+      stream.push(buildContentWithImages(text));
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };

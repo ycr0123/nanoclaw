@@ -4,6 +4,8 @@ import type { GenericMessageEvent, BotMessageEvent } from '@slack/types';
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { updateChatName } from '../db.js';
 import { readEnvFile } from '../env.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
+import { processAndSaveImage } from '../image.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
@@ -12,6 +14,14 @@ import {
   OnChatMetadata,
   RegisteredGroup,
 } from '../types.js';
+
+// Slack 파일 메타데이터 (Bolt 타입에 포함되지 않는 필드)
+interface SlackFile {
+  id: string;
+  name?: string;
+  mimetype?: string;
+  url_private_download?: string;
+}
 
 // Slack's chat.postMessage API limits text to ~4000 characters per call.
 // Messages exceeding this are split into sequential chunks.
@@ -39,6 +49,7 @@ export class SlackChannel implements Channel {
   private userNameCache = new Map<string, string>();
 
   private opts: SlackChannelOpts;
+  private botToken: string;
 
   constructor(opts: SlackChannelOpts) {
     this.opts = opts;
@@ -48,6 +59,7 @@ export class SlackChannel implements Channel {
     const env = readEnvFile(['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']);
     const botToken = env.SLACK_BOT_TOKEN;
     const appToken = env.SLACK_APP_TOKEN;
+    this.botToken = botToken!;
 
     if (!botToken || !appToken) {
       throw new Error(
@@ -72,12 +84,20 @@ export class SlackChannel implements Channel {
       // Bolt's event type is the full MessageEvent union (17+ subtypes).
       // We filter on subtype first, then narrow to the two types we handle.
       const subtype = (event as { subtype?: string }).subtype;
-      if (subtype && subtype !== 'bot_message') return;
+      if (subtype && subtype !== 'bot_message' && subtype !== 'file_share')
+        return;
 
       // After filtering, event is either GenericMessageEvent or BotMessageEvent
       const msg = event as HandledMessageEvent;
 
-      if (!msg.text) return;
+      // 이미지 파일 첨부 확인
+      const files = (event as { files?: SlackFile[] }).files;
+      const imageFiles = (files || []).filter(
+        (f) => f.mimetype?.startsWith('image/') && f.url_private_download,
+      );
+
+      // 텍스트도 이미지도 없으면 무시
+      if (!msg.text && imageFiles.length === 0) return;
 
       // Threaded replies are flattened into the channel conversation.
       // The agent sees them alongside channel-level messages; responses
@@ -92,7 +112,8 @@ export class SlackChannel implements Channel {
 
       // Only deliver full messages for registered groups
       const groups = this.opts.registeredGroups();
-      if (!groups[jid]) return;
+      const group = groups[jid];
+      if (!group) return;
 
       const isBotMessage = !!msg.bot_id || msg.user === this.botUserId;
 
@@ -109,7 +130,7 @@ export class SlackChannel implements Channel {
       // Translate Slack <@UBOTID> mentions into TRIGGER_PATTERN format.
       // Slack encodes @mentions as <@U12345>, which won't match TRIGGER_PATTERN
       // (e.g., ^@<ASSISTANT_NAME>\b), so we prepend the trigger when the bot is @mentioned.
-      let content = msg.text;
+      let content = msg.text || '';
       if (this.botUserId && !isBotMessage) {
         const mentionPattern = `<@${this.botUserId}>`;
         if (
@@ -117,6 +138,37 @@ export class SlackChannel implements Channel {
           !TRIGGER_PATTERN.test(content)
         ) {
           content = `@${ASSISTANT_NAME} ${content}`;
+        }
+      }
+
+      // 이미지 파일 처리: 다운로드 → 리사이즈 → 그룹 폴더에 저장
+      if (imageFiles.length > 0 && group) {
+        try {
+          const groupDir = resolveGroupFolderPath(group.folder);
+          const imageRefs: string[] = [];
+
+          for (let i = 0; i < imageFiles.length; i++) {
+            const file = imageFiles[i];
+            const filename = await processAndSaveImage(
+              file.url_private_download!,
+              this.botToken,
+              groupDir,
+              msg.ts,
+              i,
+            );
+            if (filename) {
+              imageRefs.push(`[Image: ${filename}]`);
+            } else {
+              imageRefs.push('[Image - download failed]');
+            }
+          }
+
+          content = content
+            ? `${content}\n${imageRefs.join('\n')}`
+            : imageRefs.join('\n');
+        } catch (err) {
+          logger.error({ err, jid }, 'Failed to process image attachments');
+          content = content || '[Image - processing failed]';
         }
       }
 
