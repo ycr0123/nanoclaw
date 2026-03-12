@@ -11,7 +11,7 @@ import { logger } from './logger.js';
 import { STORE_DIR } from './config.js';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5분
-const MAX_SEEN_UIDS = 500;
+const MAX_SEEN_UIDS = 5000;
 const SEEN_UIDS_FILE = path.join(STORE_DIR, 'email-seen-uids.json');
 
 interface EmailPollerDeps {
