@@ -55,6 +55,8 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { readEnvFile } from './env.js';
+import { startEmailPoller } from './email-poller.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -576,6 +578,36 @@ async function main(): Promise<void> {
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
   });
+  // 이메일 폴러 시작 (카페24 자격증명이 있을 때만)
+  const emailEnv = readEnvFile([
+    'CAFE24_EMAIL',
+    'CAFE24_PASSWORD',
+    'CAFE24_DOMAIN',
+    'EMAIL_NOTIFICATION_JIDS',
+  ]);
+  if (emailEnv.CAFE24_EMAIL && emailEnv.CAFE24_PASSWORD) {
+    startEmailPoller({
+      sendMessage: async (jid, text) => {
+        const channel = findChannel(channels, jid);
+        if (!channel) {
+          logger.warn({ jid }, 'No channel owns JID for email notification');
+          return;
+        }
+        const formatted = formatOutbound(text);
+        if (formatted) await channel.sendMessage(jid, formatted);
+      },
+      notificationJids: (emailEnv.EMAIL_NOTIFICATION_JIDS || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      config: {
+        email: emailEnv.CAFE24_EMAIL,
+        password: emailEnv.CAFE24_PASSWORD,
+        domain: emailEnv.CAFE24_DOMAIN || 'nextlearn.kr',
+      },
+    });
+  }
+
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

@@ -26,6 +26,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -236,6 +237,18 @@ function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // 카페24 이메일 자격증명 전달 (컨테이너 내 MCP 이메일 도구용)
+  const emailEnv = readEnvFile([
+    'CAFE24_EMAIL',
+    'CAFE24_PASSWORD',
+    'CAFE24_DOMAIN',
+  ]);
+  if (emailEnv.CAFE24_EMAIL) {
+    args.push('-e', `CAFE24_EMAIL=${emailEnv.CAFE24_EMAIL}`);
+    args.push('-e', `CAFE24_PASSWORD=${emailEnv.CAFE24_PASSWORD}`);
+    args.push('-e', `CAFE24_DOMAIN=${emailEnv.CAFE24_DOMAIN}`);
   }
 
   // Runtime-specific args for host gateway resolution

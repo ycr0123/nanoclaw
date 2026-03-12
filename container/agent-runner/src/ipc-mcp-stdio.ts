@@ -10,6 +10,13 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
+import {
+  listEmails,
+  readEmail,
+  sendEmail,
+  getDailySendCount,
+  type EmailConfig,
+} from './email-service.js';
 
 const IPC_DIR = '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
@@ -332,6 +339,137 @@ Use available_groups.json to find the JID for a group. The folder name must be c
     };
   },
 );
+
+// --- Email tools ---
+// 환경변수에서 이메일 설정 읽기 (컨테이너에 -e 로 주입됨)
+function getEmailConfig(): EmailConfig | null {
+  const email = process.env.CAFE24_EMAIL;
+  const password = process.env.CAFE24_PASSWORD;
+  const domain = process.env.CAFE24_DOMAIN;
+  if (!email || !password || !domain) return null;
+  return { email, password, domain };
+}
+
+const emailConfig = getEmailConfig();
+
+if (emailConfig) {
+  server.tool(
+    'list_emails',
+    `List recent emails from the inbox. Returns sender, subject, date, and email number for each message. Use the email number with read_email to get the full content.`,
+    {
+      count: z.number().min(1).max(50).default(20).describe('Number of recent emails to list (default: 20, max: 50)'),
+    },
+    async (args) => {
+      try {
+        const emails = await listEmails(emailConfig, args.count);
+        if (emails.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No emails found in inbox.' }] };
+        }
+
+        const formatted = emails
+          .map(
+            (e) =>
+              `[#${e.number}] ${e.from}\n  Subject: ${e.subject}\n  Date: ${e.date}\n  Size: ${Math.round(e.size / 1024)}KB`,
+          )
+          .join('\n\n');
+
+        const { count: sent, limit } = getDailySendCount();
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Inbox (${emails.length} emails shown):\n\n${formatted}\n\n--- Daily send count: ${sent}/${limit} ---`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            { type: 'text' as const, text: `Failed to list emails: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'read_email',
+    `Read the full content of a specific email. Use list_emails first to get the email number.`,
+    {
+      email_number: z.number().describe('The email number from list_emails results'),
+    },
+    async (args) => {
+      try {
+        const email = await readEmail(emailConfig, args.email_number);
+
+        const parts = [
+          `From: ${email.from}`,
+          `To: ${email.to}`,
+          `Subject: ${email.subject}`,
+          `Date: ${email.date}`,
+          '',
+          email.body,
+        ];
+
+        if (email.attachments.length > 0) {
+          parts.push(
+            '',
+            `Attachments (${email.attachments.length}):`,
+            ...email.attachments.map(
+              (a) => `  - ${a.filename} (${Math.round(a.size / 1024)}KB, ${a.contentType})`,
+            ),
+          );
+        }
+
+        return { content: [{ type: 'text' as const, text: parts.join('\n') }] };
+      } catch (err) {
+        return {
+          content: [
+            { type: 'text' as const, text: `Failed to read email: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'send_email',
+    `Send an email via SMTP. IMPORTANT: You MUST get explicit user approval before calling this tool — always confirm recipient, subject, and body with the user first. Daily send limit: 400.`,
+    {
+      to: z.string().describe('Recipient email address'),
+      subject: z.string().describe('Email subject'),
+      body: z.string().describe('Email body text'),
+      cc: z.string().optional().describe('CC email address (optional)'),
+      is_html: z.boolean().default(false).describe('Whether the body is HTML (default: false)'),
+    },
+    async (args) => {
+      try {
+        const result = await sendEmail(emailConfig, {
+          to: args.to,
+          subject: args.subject,
+          body: args.body,
+          cc: args.cc,
+          isHtml: args.is_html,
+        });
+
+        return {
+          content: [{ type: 'text' as const, text: result.message }],
+          isError: !result.success,
+        };
+      } catch (err) {
+        return {
+          content: [
+            { type: 'text' as const, text: `Failed to send email: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
 
 // Start the stdio transport
 const transport = new StdioServerTransport();
