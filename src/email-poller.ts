@@ -76,7 +76,9 @@ async function pollForNewEmails(deps: EmailPollerDeps): Promise<void> {
     } catch {
       // UIDL 미지원 시 LIST 기반 해시로 대체
       const listResult = await pop3.LIST();
-      const msgList = Array.isArray(listResult) ? (listResult as string[][]) : [];
+      const msgList = Array.isArray(listResult)
+        ? (listResult as string[][])
+        : [];
       uidlList = msgList.map(([num, size]) => [num, `${num}-${size}`]);
     }
 
