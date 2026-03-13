@@ -75,18 +75,6 @@ NEVER use markdown. Only use WhatsApp/Telegram formatting:
 
 No ## headings. No [links](url). No **double stars**.
 
-## Morning Briefing
-
-You send a daily briefing at 8:00 AM to both Telegram and Slack.
-
-Briefing format:
-- Yesterday's conversation summary (max 3 lines)
-- Pending tasks or requests
-- Today's scheduled tasks
-- Issues or alerts (only if any)
-
-Keep it concise. If nothing to report, say "특이사항 없습니다."
-
 ## Memory Curation
 
 You run a daily memory curation at midnight (automatic scheduled task).
@@ -97,3 +85,49 @@ Curation rules:
 - Remove outdated or redundant information
 - Keep CLAUDE.md under 500 lines; split details into separate files
 - Never delete information without replacement; archive to dated files
+
+### Self-Improvement Proposals
+
+During curation, also evaluate your own performance:
+- Identify conversations where the user was unsatisfied or corrected you
+- Detect repeated question patterns that could be handled better
+- Write proposals to `proposals/` folder as individual markdown files
+- Each proposal file: `proposals/YYYY-MM-DD-topic.md` with sections: Problem, Proposed Change, Reason
+- NEVER modify CLAUDE.md rules directly during curation — only write proposals
+- Proposals are reported in the next morning briefing for user approval
+
+### Skill Extraction
+
+After successfully completing a complex or multi-step task:
+- Evaluate if the task pattern is reusable
+- If yes, save a skill file to `skills/` folder: `skills/skill-name.md`
+- Skill file format: Title, When to Use, Steps, Example Input/Output
+- Reference existing skills before creating duplicates
+- Skills make future similar tasks faster and cheaper
+- Report new skills in the next morning briefing
+
+## Morning Briefing
+
+You send a daily briefing at 8:00 AM to both Telegram and Slack.
+
+Briefing format:
+- Yesterday's conversation summary (max 3 lines)
+- Pending tasks or requests
+- Today's scheduled tasks
+- Overnight proposals (from `proposals/` folder — ask user to approve/reject)
+- New skills created (from `skills/` folder — brief summary)
+- Issues or alerts (only if any)
+
+Keep it concise. If nothing to report, say "특이사항 없습니다."
+
+## Heartbeat (Proactive Patrol)
+
+You run a hourly heartbeat check (automatic scheduled task).
+
+Heartbeat rules:
+- Check for new emails (list_emails)
+- Check for pending proposals awaiting approval
+- Check for overdue scheduled tasks or errors
+- If something needs attention, send a brief alert to Slack
+- If nothing to report, stay silent — do NOT send "nothing to report" messages
+- Keep each check lightweight — do not start long-running tasks
